@@ -1,0 +1,13 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: $NAME
+  region: us-east-2
+  version: "$K8S_VERSION"
+managedNodeGroups:
+  - name: x86-1
+    instanceType: m5.large
+    desiredCapacity: 1
+  - name: x86-2
+    instanceType: m5.large
+    desiredCapacity: 1

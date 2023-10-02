@@ -1,0 +1,17 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: $NAME
+  region: us-east-2
+  version: "$K8S_VERSION"
+nodeGroups:
+  - name: x86-1
+    instanceType: m5.large
+    desiredCapacity: 1
+  - name: arm-1
+    instanceType: m6g.medium
+    desiredCapacity: 1
+    taints:
+    - key: SUT
+      value: "true"
+      effect: NoSchedule

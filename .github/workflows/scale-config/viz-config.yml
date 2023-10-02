@@ -1,0 +1,10 @@
+prometheus:
+  args:
+    web.enable-admin-api: {}
+  sidecarContainers:
+  - name: sidecar
+    image: alpine
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - mountPath: /data
+      name: data

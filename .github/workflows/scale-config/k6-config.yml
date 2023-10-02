@@ -1,0 +1,10 @@
+apiVersion: k6.io/v1alpha1
+kind: K6
+metadata:
+  name: scale-test
+spec:
+  parallelism: $PARALLELISM
+  script:
+    configMap:
+      name: scale-test
+      file: k6-script.js
