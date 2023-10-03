@@ -1,0 +1,63 @@
+name: Install k6-operator and run a test
+
+inputs:
+  initial-delay:
+    required: false
+    default: 0
+  parallelism:
+    required: true
+  thresholds:
+    required: true
+  AWS_ACCESS_KEY_ID:
+    required: false
+  AWS_SECRET_ACCESS_KEY:
+    required: false
+
+runs:
+  using: composite
+  steps:
+  - shell: bash
+    env:
+      AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+    run: |
+      kubectl apply -f .github/workflows/scale-config/k6-operator.yml
+      sleep 5
+      kubectl -n k6-operator-system wait --for=condition=ready pod \
+        --selector=app.kubernetes.io/name=k6-operator --timeout=-1s
+
+      sleep ${{ inputs.initial-delay}}
+
+      thresholds="${{ inputs.thresholds}}"
+      sed -e "s/\$THRESHOLDS/$thresholds/" \
+        .github/workflows/scale-config/${{ github.job }}/k6-script.js \
+        > /tmp/k6-script.js
+      cat /tmp/k6-script.js
+
+      kubectl create cm scale-test --from-file /tmp/k6-script.js
+
+      sed -e 's/$PARALLELISM/${{ inputs.parallelism }}/' \
+          .github/workflows/scale-config/k6-config.yml \
+        | kubectl apply -f -
+
+      sleep 10
+      success=true
+      for ((i=1; i <= ${{ inputs.parallelism }}; i++)); do
+        kubectl wait --for=condition=complete --timeout=-1s job/scale-test-$i &
+        completion_pid=$!
+        kubectl wait --for=condition=failed --timeout=-1s job/scale-test-$i && exit 1 &
+        failure_pid=$! 
+        wait -n $completion_pid $failure_pid
+        exit_code=$?
+
+        echo "RESULTS FOR job/scale-test-$i:"
+        kubectl logs job/scale-test-$i
+
+        if (( $exit_code != 0 )); then
+          success=false
+        fi
+      done
+      if ! $success; then
+        echo "::error::k6 thresholds have been crossed"
+        exit $exit_code
+      fi

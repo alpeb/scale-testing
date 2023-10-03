@@ -1,9 +1,11 @@
-name: Scale Tests
+# Triggers two clusters in EKS, one with x86 nodes and another with an ARM64
+# node, and performs a load test on an injected workload"
+name: Dataplane Traffic Burst Test - EKS
 
 on:
   push:
     branches:
-    - main
+    - eks
 
 permissions:
   contents: read
@@ -14,24 +16,27 @@ defaults:
 
 jobs:
   dp-traffic-burst:
-    name: Dataplane Traffic Burst in ARM
+    name: Dataplane Traffic Burst
     runs-on: ubuntu-latest
     strategy:
       matrix:
         platform: [eks]
         arch: [x86, arm64]
         k8s-version: ['1.24']
-        include:
-        - initial-delay: 2m
-          shutdown: false
-          k6-parallelism: 10
+        linkerd-version: ['stable-2.14.0']
+        initial-delay: [2m]
+        shutdown: [false]
+        k6-parallelism: [10]
     steps:
     - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
-    - uses: ./.github/actions/install-eksctl
+
     - uses: ./.github/actions/cluster-name
       id: name
       with:
         arch: ${{ matrix.arch }}
+
+    - uses: ./.github/actions/install-eksctl
+
     - name: Create Cluster
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -41,51 +46,33 @@ jobs:
             -e 's/$K8S_VERSION/${{ matrix.k8s-version }}/' \
             .github/workflows/scale-config/${{ github.job }}/eks-x86-${{ matrix.arch }}.yml \
           | eksctl create cluster -f -
-    - name: Install k6-operator
+
+    - uses: ./.github/actions/install-linkerd
+      with:
+        version: ${{ matrix.linkerd-version }}
+
+    - name: Install Emojivoto
       run: |
-        kubectl apply -f .github/workflows/scale-config/k6-operator.yml
-    - name: Install Linkerd
-      run: |
-        linkerd install --crds | kubectl apply -f -
-        linkerd install | kubectl apply -f -
-        linkerd viz install -f .github/workflows/scale-config/viz-config.yml \
-          | kubectl apply -f -
-        linkerd check
         linkerd inject https://run.linkerd.io/emojivoto.yml | kubectl apply -f -
         kubectl -n emojivoto scale --replicas 0 deploy vote-bot
-        kubectl -n emojivoto patch deployment web --type=json -p='[{"op": "add", "path": "/spec/template/spec/tolerations", "value": [{"key":"SUT","operator":"Equal","value":"true","effect":"NoSchedule"}]}]'
+        kubectl -n emojivoto patch deployment web --type=json \
+          -p='[{"op": "add", "path": "/spec/template/spec/tolerations", "value": [{"key":"SUT","operator":"Equal","value":"true","effect":"NoSchedule"}]}]'
         linkerd check --proxy -n emojivoto
-    - name: Run Test
-      run: |
-        if [[ ${{ matrix.initial-delay}} ]]; then
-          sleep ${{ matrix.initial-delay}}
-        fi
-        kubectl create cm scale-test --from-file \
-          .github/workflows/scale-config/${{ github.job }}/k6-script.js
-        sed -e 's/$PARALLELISM/${{ matrix.k6-parallelism }}/' \
-            .github/workflows/scale-config/k6-config.yml \
-          | kubectl apply -f -
-    - name: Wait and Return Results
-      run: |
-        for ((i=1; i <= ${{ matrix.k6-parallelism }}; i++)); do
-          kubectl wait --for=condition=complete job/scale-test-$i --timeout=-1s
-          echo "RESULTS FOR job/scale-test-$i:"
-          kubectl logs job/scale-test-$i
-        done
-    - name: Create Metrics Snapshot
-      run: |
-        kubectl -n linkerd-viz port-forward svc/prometheus 9090
-        snapshot=$(curl -XPOST http://localhost:9090/api/v1/admin/tsdb/snapshot | jq .data.name|tr -d '"')
-        pod=$(kubectl -n linkerd-viz get po -l component=prometheus -oname)
-        name=${pod#"pod/"}
-        kubectl -n linkerd-viz cp $name:/data/snapshots -c sidecar ./snapshots
-        tar zcf snapshots.tar.tz snapshots/
-    - name: Upload Metrics Snapshot
-      uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32
+
+    - uses: ./.github/actions/run-k6-test
       with:
-        name: metrics-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.k8s-version }}.tar.gz
-        path: ./snapshots.tar.gz
+        initial-delay: ${{ matrix.initial-delay }}
+        parallelism: ${{ matrix.k6-parallelism }}
+
+    - uses: ./.github/actions/retrieve-metrics
+      with:
+        platform: ${{ matrix.platform }}
+        arch: ${{ matrix.arch }}
+        k8s-version: ${{ matrix.k8s-version }}
+
     - name: Tear Down Cluster
+      # If shutdown is false, make sure you manually delete the clusters and
+      # its related resources after you're done inspecting them!
       if: ${{ always() }}
       run: |
         if [[ ${{ matrix.shutdown }} == "true" ]]; then

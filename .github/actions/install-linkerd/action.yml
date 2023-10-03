@@ -1,0 +1,32 @@
+name: Install linkerd and linkerd-viz
+
+inputs:
+  version:
+    required: true
+  AWS_ACCESS_KEY_ID:
+    required: false
+  AWS_SECRET_ACCESS_KEY:
+    required: false
+
+runs:
+  using: composite
+  steps:
+  - shell: bash
+    run: |
+      linkerdpath="$HOME/.linkerd2/bin"
+      mkdir -p $linkerdpath
+      echo "$linkerdpath" >> $GITHUB_PATH
+
+  - shell: bash
+    env:
+      AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+    run: |
+      export LINKERD2_VERSION=${{ inputs.version }}
+      curl -sL https://run.linkerd.io/install | sh
+
+      linkerd install --crds | kubectl apply -f -
+      linkerd install | kubectl apply -f -
+      linkerd viz install -f .github/workflows/scale-config/viz-config.yml \
+        | kubectl apply -f -
+      linkerd check

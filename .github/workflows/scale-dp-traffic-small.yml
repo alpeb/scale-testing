@@ -1,0 +1,82 @@
+# Triggers one clusters in k3d and performs a load test on an injected
+# workload. Same as scale-dp-traffic-burst.yml but much smaller.
+name: Dataplane Traffic Burst Test - k3d
+
+on:
+  push:
+    branches:
+    - main
+
+permissions:
+  contents: read
+
+jobs:
+  dp-traffic-small:
+    name: Dataplane Traffic Burst
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: k3d
+            arch: x86
+            k8s-version: '1.24'
+            linkerd-version: 'stable-2.14.0'
+            initial-delay: 15s
+            shutdown: false
+            k6-parallelism: 2
+            k6-thresholds: "{http_req_failed: ['rate<0.01'], http_req_duration: ['p(99)<50']}"
+            metric-query: 'container_memory_working_set_bytes{namespace="emojivoto",pod=~"web-.*",container="linkerd-proxy"}'
+            metric-condition: '< 50000000'
+    steps:
+    - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+    - uses: ./.github/actions/create-cluster
+      id: create-cluster
+      with:
+        platform: ${{ matrix.platform }}
+        k8s-version: ${{ matrix.k8s-version }}
+        arch: ${{ matrix.arch }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - uses: ./.github/actions/install-linkerd
+      with:
+        version: ${{ matrix.linkerd-version }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: Install Emojivoto
+      run: |
+        linkerd inject https://run.linkerd.io/emojivoto.yml | kubectl apply -f -
+        kubectl -n emojivoto scale --replicas 0 deploy vote-bot
+        kubectl -n emojivoto patch deployment web --type=json \
+          -p='[{"op": "add", "path": "/spec/template/spec/tolerations", "value": [{"key":"SUT","operator":"Equal","value":"true","effect":"NoSchedule"}]}]'
+        linkerd check --proxy -n emojivoto
+
+    - uses: ./.github/actions/run-k6-test
+      with:
+        initial-delay: ${{ matrix.initial-delay }}
+        parallelism: ${{ matrix.k6-parallelism }}
+        thresholds: ${{ matrix.k6-thresholds }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - uses: ./.github/actions/process-metrics
+      if: always()
+      with:
+        platform: ${{ matrix.platform }}
+        arch: ${{ matrix.arch }}
+        k8s-version: ${{ matrix.k8s-version }}
+        metric-query: ${{ matrix.metric-query }}
+        metric-condition: ${{ matrix.metric-condition }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - uses: ./.github/actions/delete-cluster
+      # If shutdown is false, make sure you manually delete the clusters and
+      # its related resources after you're done inspecting them!
+      if: always()
+      with:
+        cluster-name: ${{ steps.create-cluster.outputs.NAME }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

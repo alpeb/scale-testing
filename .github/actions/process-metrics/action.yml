@@ -1,0 +1,55 @@
+name: Process Metrics
+description: Triggers a Prometheus Snapshot, downloads it and adds it as an action artifact
+
+inputs:
+  platform:
+    required: true
+  arch:
+    required: true
+  k8s-version:
+    required: true
+  metric-query:
+    required: true
+  metric-condition:
+    required: true
+  AWS_ACCESS_KEY_ID:
+    required: false
+  AWS_SECRET_ACCESS_KEY:
+    required: false
+
+runs:
+  using: composite
+  steps:
+  - shell: bash
+    env:
+      AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+    run: |
+      kubectl -n linkerd-viz port-forward svc/prometheus 9090 &
+      sleep 5
+
+      curl -L -O https://github.com/prometheus/prometheus/releases/download/v2.45.1/prometheus-2.45.1.linux-amd64.tar.gz
+      tar zxf prometheus-2.45.1.linux-amd64.tar.gz
+
+      res=$(prometheus-2.45.1.linux-amd64/promtool query instant -o json http://localhost:9090 '${{ inputs.metric-query }}' | jq .[0].value[1] | tr -d '"')
+      echo "Metric value: $res"
+      expr="(( $res ${{ inputs.metric-condition }} ))"
+      if eval "$expr"; then
+        exit_val=0
+      else
+        exit_val=1
+        echo "::error::Metric condition not fulfilled: $expr"
+      fi
+
+      snapshot=$(curl -XPOST http://localhost:9090/api/v1/admin/tsdb/snapshot | jq .data.name|tr -d '"')
+      pod=$(kubectl -n linkerd-viz get po -l component=prometheus -oname)
+      name=${pod#"pod/"}
+      kubectl -n linkerd-viz cp $name:/data/snapshots -c sidecar ./snapshots
+      tar zcf snapshots.tar.gz snapshots/
+
+      exit $exit_val
+  - uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32
+    with:
+      name: metrics-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.k8s-version }}.tar.gz
+      path: snapshots.tar.gz
+

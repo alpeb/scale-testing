@@ -1,0 +1,54 @@
+name: Create Cluster
+
+inputs:
+  platform:
+    required: false
+    default: k3d
+  arch:
+    required: false
+    default: x86
+  k8s-version:
+    required: false
+    default: "1.28"
+  AWS_ACCESS_KEY_ID:
+    required: false
+  AWS_SECRET_ACCESS_KEY:
+    required: false
+
+runs:
+  using: composite
+  steps:
+  - id: name
+    shell: bash
+    run: |
+      RND=$(date +%s | md5sum)
+      RND_SHORT=${RND:0:4}
+      echo "NAME=${{ github.job }}-$RND_SHORT-${{ inputs.arch }}" >> "$GITHUB_OUTPUT"
+
+  - if: inputs.platform == 'k3d'
+    uses: nolar/setup-k3d-k3s@293b8e5822a20bc0d5bcdd4826f1a665e72aba96
+    with:
+      k3d-name: ${{ steps.name.outputs.NAME }}
+      version: v${{ inputs.k8s-version }}
+
+  - if: inputs.platform == 'eks'
+    shell: bash
+    env:
+      AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+    run: |
+      ARCH=amd64
+      PLATFORM=$(uname -s)_$ARCH
+      curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$PLATFORM.tar.gz"
+      tar -xzf eksctl_$PLATFORM.tar.gz -C /tmp && rm eksctl_$PLATFORM.tar.gz
+      sudo mv /tmp/eksctl /usr/local/bin
+      eksctl version
+
+      sed -e 's/\$NAME/${{ steps.name.outputs.NAME }}/' \
+          -e 's/$K8S_VERSION/${{ inputs.k8s-version }}/' \
+          .github/workflows/scale-config/${{ github.job }}/eks-x86-${{ inputs.arch }}.yml \
+        | eksctl create cluster -f -
+
+outputs:
+  name:
+    value: ${{ steps.generated_name.outputs.NAME }}
