@@ -1,6 +1,6 @@
 # Triggers one clusters in k3d and performs a load test on an injected
 # workload. Same as scale-dp-traffic-burst.yml but much smaller.
-name: Dataplane Traffic Burst Test - k3d
+name: Dataplane Load Test - k3d
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   dp-traffic-small:
-    name: Dataplane Traffic Burst
+    name: Dataplane Load Test
     runs-on: ubuntu-latest
     strategy:
       matrix:

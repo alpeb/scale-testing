@@ -22,4 +22,6 @@ runs:
     run: |
       if [[ ${{ inputs.shutdown }} == "true" ]]; then
         eksctl delete cluster --name ${{ inputs.cluster-name }}
+      else
+        echo "::warning::Clusters were not deleted, don't forget to delete them when you're done!"
       fi

@@ -1,6 +1,6 @@
 # Triggers two clusters in EKS, one with x86 nodes and another with an ARM64
 # node, and performs a load test on an injected workload"
-name: Dataplane Traffic Burst Test - EKS
+name: Dataplane Load Test - EKS
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   dp-traffic-burst:
-    name: Dataplane Traffic Burst
+    name: Dataplane Load Test
     runs-on: ubuntu-latest
     strategy:
       matrix:

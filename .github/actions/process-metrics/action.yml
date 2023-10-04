@@ -45,11 +45,11 @@ runs:
       pod=$(kubectl -n linkerd-viz get po -l component=prometheus -oname)
       name=${pod#"pod/"}
       kubectl -n linkerd-viz cp $name:/data/snapshots -c sidecar ./snapshots
-      tar zcf snapshots.tar.gz snapshots/
+      tar cf snapshots.tar snapshots/
 
       exit $exit_val
   - uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32
     with:
-      name: metrics-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.k8s-version }}.tar.gz
-      path: snapshots.tar.gz
+      name: metrics-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.k8s-version }}.tar
+      path: snapshots.tar
 
