@@ -58,6 +58,6 @@ runs:
         fi
       done
       if ! $success; then
-        echo "::error::k6 thresholds have been crossed"
+        echo "::warning::k6 thresholds have been crossed"
         exit $exit_code
       fi

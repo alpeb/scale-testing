@@ -38,7 +38,7 @@ runs:
         exit_val=0
       else
         exit_val=1
-        echo "::error::Metric condition not fulfilled: $expr"
+        echo "::warning::Metric condition not fulfilled: $expr"
       fi
 
       snapshot=$(curl -XPOST http://localhost:9090/api/v1/admin/tsdb/snapshot | jq .data.name|tr -d '"')
@@ -49,6 +49,7 @@ runs:
 
       exit $exit_val
   - uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32
+    if: always()
     with:
       name: metrics-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.k8s-version }}.tar
       path: snapshots.tar

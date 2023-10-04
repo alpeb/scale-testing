@@ -1,32 +1,32 @@
-# Triggers two clusters in EKS, one with x86 nodes and another with an ARM64
-# node, and performs a load test on an injected workload"
-name: Dataplane Load Test - EKS
+# Triggers one clusters in k3d and performs a load test on an injected
+# workload. Same as scale-load-dp.yml but much smaller.
+name: Load Test Dataplane - k3d
 
 on:
   push:
     branches:
-    - main
+    - k3d
 
 permissions:
   contents: read
 
 jobs:
-  dp-traffic-burst:
-    name: Dataplane Load Test
+  load-dp-small:
+    name: Load Test Dataplane
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [x86, arm64]
         include:
-        - platform: eks
+        - platform: k3d
+          arch: x86
           k8s-version: '1.24'
           linkerd-version: 'stable-2.14.0'
-          initial-delay: 2m
-          shutdown: true
-          k6-parallelism: 10
-          k6-thresholds: "{http_req_failed: ['rate<0.01'], http_req_duration: ['p(99)<100']}"
+          initial-delay: 15s
+          shutdown: false
+          k6-parallelism: 2
+          k6-thresholds: "{http_req_failed: ['rate<0.01'], http_req_duration: ['p(99)<50']}"
           metric-query: 'container_memory_working_set_bytes{namespace="emojivoto",pod=~"web-.*",container="linkerd-proxy"}'
-          metric-condition: '< 50000000'
+          metric-condition: '< 200000000'
     steps:
     - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
 
@@ -46,9 +46,6 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     - name: Install Emojivoto
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
         linkerd inject https://run.linkerd.io/emojivoto.yml | kubectl apply -f -
         kubectl -n emojivoto scale --replicas 0 deploy vote-bot
@@ -76,10 +73,10 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     - uses: ./.github/actions/delete-cluster
-      # If shutdown is false, make sure you manually delete the clusters and
-      # its related resources after you're done inspecting them!
-      if: ${{ always() }}
+      if: always()
       with:
+        shutdown: ${{ matrix.shutdown }}
+        platform: ${{ matrix.platform }}
         cluster-name: ${{ steps.create-cluster.outputs.NAME }}
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
