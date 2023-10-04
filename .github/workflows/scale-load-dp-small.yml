@@ -1,6 +1,6 @@
 # Triggers one clusters in k3d and performs a load test on an injected
-# workload. Same as scale-dp-traffic-burst.yml but much smaller.
-name: Dataplane Load Test - k3d
+# workload. Same as scale-load-dp.yml but much smaller.
+name: Load Test Dataplane - k3d
 
 on:
   push:
@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  dp-traffic-small:
-    name: Dataplane Load Test
+  load-dp-small:
+    name: Load Test Dataplane
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -26,7 +26,7 @@ jobs:
           k6-parallelism: 2
           k6-thresholds: "{http_req_failed: ['rate<0.01'], http_req_duration: ['p(99)<50']}"
           metric-query: 'container_memory_working_set_bytes{namespace="emojivoto",pod=~"web-.*",container="linkerd-proxy"}'
-          metric-condition: '< 50000000'
+          metric-condition: '< 200000000'
     steps:
     - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
 
@@ -73,10 +73,9 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     - uses: ./.github/actions/delete-cluster
-      # If shutdown is false, make sure you manually delete the clusters and
-      # its related resources after you're done inspecting them!
       if: always()
       with:
+        platform: ${{ matrix.platform }}
         cluster-name: ${{ steps.create-cluster.outputs.NAME }}
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

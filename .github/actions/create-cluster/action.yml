@@ -51,4 +51,4 @@ runs:
 
 outputs:
   name:
-    value: ${{ steps.generated_name.outputs.NAME }}
+    value: ${{ steps.name.outputs.NAME }}
