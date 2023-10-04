@@ -5,14 +5,10 @@ name: Dataplane Traffic Burst Test - EKS
 on:
   push:
     branches:
-    - eks
+    - main
 
 permissions:
   contents: read
-
-defaults:
-  run:
-    shell: bash
 
 jobs:
   dp-traffic-burst:
@@ -20,38 +16,39 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        platform: [eks]
         arch: [x86, arm64]
-        k8s-version: ['1.24']
-        linkerd-version: ['stable-2.14.0']
-        initial-delay: [2m]
-        shutdown: [false]
-        k6-parallelism: [10]
+        include:
+        - platform: eks
+          k8s-version: '1.24'
+          linkerd-version: 'stable-2.14.0'
+          initial-delay: 2m
+          shutdown: true
+          k6-parallelism: 10
+          k6-thresholds: "{http_req_failed: ['rate<0.01'], http_req_duration: ['p(99)<100']}"
+          metric-query: 'container_memory_working_set_bytes{namespace="emojivoto",pod=~"web-.*",container="linkerd-proxy"}'
+          metric-condition: '< 50000000'
     steps:
     - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
 
-    - uses: ./.github/actions/cluster-name
-      id: name
+    - uses: ./.github/actions/create-cluster
+      id: create-cluster
       with:
+        platform: ${{ matrix.platform }}
+        k8s-version: ${{ matrix.k8s-version }}
         arch: ${{ matrix.arch }}
-
-    - uses: ./.github/actions/install-eksctl
-
-    - name: Create Cluster
-      env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      run: |
-        sed -e 's/\$NAME/${{ steps.name.outputs.NAME }}/' \
-            -e 's/$K8S_VERSION/${{ matrix.k8s-version }}/' \
-            .github/workflows/scale-config/${{ github.job }}/eks-x86-${{ matrix.arch }}.yml \
-          | eksctl create cluster -f -
 
     - uses: ./.github/actions/install-linkerd
       with:
         version: ${{ matrix.linkerd-version }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     - name: Install Emojivoto
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
         linkerd inject https://run.linkerd.io/emojivoto.yml | kubectl apply -f -
         kubectl -n emojivoto scale --replicas 0 deploy vote-bot
@@ -63,18 +60,26 @@ jobs:
       with:
         initial-delay: ${{ matrix.initial-delay }}
         parallelism: ${{ matrix.k6-parallelism }}
+        thresholds: ${{ matrix.k6-thresholds }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - uses: ./.github/actions/retrieve-metrics
+    - uses: ./.github/actions/process-metrics
+      if: always()
       with:
         platform: ${{ matrix.platform }}
         arch: ${{ matrix.arch }}
         k8s-version: ${{ matrix.k8s-version }}
+        metric-query: ${{ matrix.metric-query }}
+        metric-condition: ${{ matrix.metric-condition }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - name: Tear Down Cluster
+    - uses: ./.github/actions/delete-cluster
       # If shutdown is false, make sure you manually delete the clusters and
       # its related resources after you're done inspecting them!
       if: ${{ always() }}
-      run: |
-        if [[ ${{ matrix.shutdown }} == "true" ]]; then
-          eksctl delete cluster --name ${{ steps.name.outputs.NAME }}
-        fi
+      with:
+        cluster-name: ${{ steps.create-cluster.outputs.NAME }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

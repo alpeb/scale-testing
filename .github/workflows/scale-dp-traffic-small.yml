@@ -5,7 +5,7 @@ name: Dataplane Traffic Burst Test - k3d
 on:
   push:
     branches:
-    - main
+    - k3d
 
 permissions:
   contents: read
@@ -17,16 +17,16 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform: k3d
-            arch: x86
-            k8s-version: '1.24'
-            linkerd-version: 'stable-2.14.0'
-            initial-delay: 15s
-            shutdown: false
-            k6-parallelism: 2
-            k6-thresholds: "{http_req_failed: ['rate<0.01'], http_req_duration: ['p(99)<50']}"
-            metric-query: 'container_memory_working_set_bytes{namespace="emojivoto",pod=~"web-.*",container="linkerd-proxy"}'
-            metric-condition: '< 50000000'
+        - platform: k3d
+          arch: x86
+          k8s-version: '1.24'
+          linkerd-version: 'stable-2.14.0'
+          initial-delay: 15s
+          shutdown: false
+          k6-parallelism: 2
+          k6-thresholds: "{http_req_failed: ['rate<0.01'], http_req_duration: ['p(99)<50']}"
+          metric-query: 'container_memory_working_set_bytes{namespace="emojivoto",pod=~"web-.*",container="linkerd-proxy"}'
+          metric-condition: '< 50000000'
     steps:
     - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
 

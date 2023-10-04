@@ -24,6 +24,7 @@ export const options = {
       duration: '10m',
     },
   },
+  thresholds: $THRESHOLDS,
 };
 
 export default function () {
